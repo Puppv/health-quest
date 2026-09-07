@@ -35,9 +35,9 @@ function damageMultiplier(bossType, stats) {
       // is continuous run-derived damage, not a discrete attack roll.
       return agility < STAT_THRESHOLD ? 0.7 : 1.0;
     case "mirage":
-      // Stands in with a damage penalty until the Recovery Meter / Area
-      // Node buff system (Mirage's real target) exists.
-      return wisdom < STAT_THRESHOLD ? 0.5 : 1.0;
+      // Mirage never touches base damage — it attacks buffs instead, via
+      // buffPotencyMultiplier below.
+      return 1.0;
     case "balanceGuardian": {
       const belowCount = [strength, agility, wisdom].filter((v) => v < STAT_THRESHOLD).length;
       return Math.pow(0.5, belowCount);
@@ -47,9 +47,23 @@ function damageMultiplier(bossType, stats) {
   }
 }
 
+// How much of a held buff's *bonus* survives this fight. Only Mirage
+// touches it: failing its INT check halves the Recovery Meter bonus (e.g.
+// +15% damage becomes +7.5%) rather than cutting base damage — that's what
+// the design always specified, it only stood in as a flat damage penalty
+// while no buff existed to weaken. Mirrors BossType.buffPotencyMultiplier.
+function buffPotencyMultiplier(bossType, stats) {
+  const { wisdom = 0 } = stats ?? {};
+  if (bossType !== "mirage") return 1.0;
+  return wisdom < STAT_THRESHOLD ? 0.5 : 1.0;
+}
+
 export function computeDamage({ distanceMeters, durationSeconds, bossType, stats, recoveryBuffActive = false }) {
   const base = baseDamage(distanceMeters, durationSeconds);
   if (base <= 0) return 0;
-  const recoveryMultiplier = recoveryBuffActive ? RECOVERY_BUFF_DAMAGE_MULTIPLIER : 1.0;
-  return base * recoveryMultiplier * damageMultiplier(bossType, stats);
+  // Applied as a bonus, not a flat multiplier, so a boss can weaken the
+  // bonus without touching base damage.
+  const rawBonus = recoveryBuffActive ? RECOVERY_BUFF_DAMAGE_MULTIPLIER - 1 : 0;
+  const bonus = rawBonus * buffPotencyMultiplier(bossType, stats);
+  return base * (1 + bonus) * damageMultiplier(bossType, stats);
 }
